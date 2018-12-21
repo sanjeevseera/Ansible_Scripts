@@ -1,0 +1,104 @@
+---
+
+   - set_fact:
+        CMS_STACK_NAME: "CMS_2_{{CMS_IMAGE_LINK.split('/')[-1].split('-')[4]}}"
+
+   - file:
+       path: "/root/CMSbackup/{{STBIP}}/"
+       state: directory
+
+   - fetch:
+       src: "{{item}}"
+       dest: "/root/CMSbackup/{{STBIP}}/"
+       flat: yes
+       validate_checksum: yes
+     with_items: ["/opt/dist/LIManager/conf/application.properties", "/opt/dist/NetConfManager/conf/application.properties", "/opt/dist/RuleEngine/conf/cms_service.properties"]
+     remote_user: "{{CMS_STB_USER}}"
+     delegate_to: "{{STBIP}}"
+
+   - name: service cms stop
+     shell: "service cms stop"
+     remote_user: "{{CMS_STB_USER}}"
+     delegate_to: "{{STBIP}}"
+
+   - name: tar standby redun
+     shell: "tar -zcvf redun_yang.tar.gz redun/yang/"
+     args:
+       chdir: /data/
+     remote_user: "{{CMS_STB_USER}}"
+     delegate_to: "{{STBIP}}"
+ 
+   - fetch:
+       src: "/data/redun_yang.tar.gz"
+       dest: /root/CMSbackup/
+       flat: yes
+       validate_checksum: yes
+     remote_user: "{{CMS_STB_USER}}"
+     delegate_to: "{{STBIP}}"
+
+   - shell: "source {{KEYSTONE_SOURCE_PATH}} && cd {{HOME_DIR}} && openstack stack delete {{CMS_STANDBY_STACK_DELETE}} --yes"
+     remote_user: "{{CONTROLLER_SYSUSER}}"
+     delegate_to: "{{CONTROLLER}}"
+
+   - pause: seconds=60 
+
+   - shell: "source {{KEYSTONE_SOURCE_PATH}} && cd {{HOME_DIR}} && openstack stack create -t {{CMS_STANDBY_YAML_NAME}} -e {{CMS_STANDBY_ENV_NAME}} {{CMS_STACK_NAME}}"
+     remote_user: "{{CONTROLLER_SYSUSER}}"
+     delegate_to: "{{CONTROLLER}}"
+
+   - pause: minutes=20
+
+   - include_tasks: setup_pwdless_login.yml
+     vars:
+         SSHIP: "{{STBIP}}"
+         ACIP: localhost
+         SYSUSER: "{{CMS_SYS_USER}}"
+         SYSPASS: "{{CMS_SYS_PASSWORD}}"
+
+# CMS Standby status check for Standby
+   - include_tasks: CMS_Status_Check.yml
+     vars:
+         CMSUSER: "{{CMS_STB_USER}}"
+         CMSIP: "{{STBIP}}"
+   - set_fact: new_status={{RESP.stdout}}
+     when: RESP.stdout is defined
+
+   - include_tasks: CMS_Status_Check.yml
+     vars:
+         CMSUSER: "{{CMS_STB_USER}}"
+         CMSIP: "{{STBIP}}"
+   - set_fact: new_status={{RESP.stdout}}
+     retries: "{{ CMS_RETRIES }}"
+     delay: "{{ CMS_DELAY }}"
+     until: "{{new_status}}|lower == \"Standby\"|lower"
+
+# CMS Standby status check for Configured
+   - include_tasks: CMS_Status_Configured.yml
+     vars:
+         CMSUSER: "{{CMS_STB_USER}}"
+         CMSIP: "{{STBIP}}"
+   - set_fact: new_con_status={{RESP.stdout}}
+     when: RESP.stdout is defined
+
+   - include_tasks: CMS_Status_Configured.yml
+     vars:
+         CMSUSER: "{{CMS_STB_USER}}"
+         CMSIP: "{{STBIP}}"
+   - set_fact: new_con_status={{RESP.stdout}}
+     retries: "{{ CMS_RETRIES }}"
+     delay: "{{ CMS_DELAY }}"
+     until: "{{new_con_status}}|lower == \"Configured\"|lower"
+
+
+   - shell: "cp {{item}} {{item}}_orig"
+     with_items: ["/opt/dist/LIManager/conf/application.properties", "/opt/dist/NetConfManager/conf/application.properties", "/opt/dist/RuleEngine/conf/cms_service.properties"] 
+     remote_user: "{{CMS_STB_USER}}"
+     delegate_to: "{{STBIP}}"
+
+   - name: "copy {{item}} to {{STBIP}}"
+     copy:
+       src: "/root/CMSbackup/{{STBIP}}/{{item.split('/')[-1]}}"
+       dest: "{{item}}"
+     with_items: ["/opt/dist/LIManager/conf/application.properties", "/opt/dist/NetConfManager/conf/application.properties", "/opt/dist/RuleEngine/conf/cms_service.properties"]
+     remote_user: "{{CMS_STB_USER}}"
+     delegate_to: "{{STBIP}}"

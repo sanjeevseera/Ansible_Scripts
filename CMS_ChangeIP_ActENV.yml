@@ -1,0 +1,58 @@
+---
+#    - include_tasks: setup_pwdless_login.yml
+#      vars:
+#        SSHIP: "{{CONTROLLER}}"
+#        ACIP: localhost
+#        SYSUSER: "{{CONTROLLER_SYSUSER}}"
+#        SYSPASS: "{{CONTROLLER_SYSPASS}}"
+
+    - name: Get IPs of CMS_DB_Active_Stadby_IPs  
+      shell: "grep \"CMS_DB_Active_Stadby_IPs\" {{CMS_ACTIVE_ENV_NAME}} | cut -d \" \" -f5"
+      args:
+        chdir: /home/wrsroot/
+      register: RES
+      remote_user: "{{CONTROLLER_SYSUSER}}"
+      delegate_to: "{{CONTROLLER}}"
+ 
+    - set_fact:
+        DB_OLD: "{{','.join(RES.stdout.split(','))}}"
+      when: RES.stdout is defined
+   
+    - set_fact:
+        DB_NEW: "{{','.join(RES.stdout.split(',')[::-1])}}"
+      when: RES.stdout is defined
+
+    - name: change IPs of CMS_DB_Active_Stadby_IPs
+      command: "sed -i -e s/{{DB_OLD}}/{{DB_NEW}}/g {{CMS_ACTIVE_ENV_NAME}}"
+      args:
+        chdir: /home/wrsroot/
+      when: RES.stdout is defined
+      remote_user: "{{CONTROLLER_SYSUSER}}"
+      delegate_to: "{{CONTROLLER}}"
+
+
+    - name: Get IPs of CMS_OAM_Active_Stadby_IPs
+      shell: "grep \"CMS_OAM_Active_Stadby_IPs\" {{CMS_ACTIVE_ENV_NAME}} | cut -d \" \" -f5"
+      args:
+        chdir: /home/wrsroot/
+      register: RES
+      remote_user: "{{CONTROLLER_SYSUSER}}"
+      delegate_to: "{{CONTROLLER}}"
+
+    - set_fact:
+        OAM_OLD: "{{','.join(RES.stdout.split(','))}}"
+      when: RES.stdout is defined
+
+    - set_fact:
+        OAM_NEW: "{{','.join(RES.stdout.split(',')[::-1])}}"
+      when: RES.stdout is defined
+
+    - name: change IPs of CMS_OAM_Active_Stadby_IPs
+      command: "sed -i -e s/{{OAM_OLD}}/{{OAM_NEW}}/g {{CMS_ACTIVE_ENV_NAME}}"
+      args:
+        chdir: /home/wrsroot/
+      when: RES.stdout is defined
+      remote_user: "{{CONTROLLER_SYSUSER}}"
+      delegate_to: "{{CONTROLLER}}"
+
+

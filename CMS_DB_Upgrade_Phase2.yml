@@ -1,0 +1,116 @@
+---
+    - set_fact:
+        CMS_STACK_NAME: "CMS_1_{{CMS_IMAGE_LINK.split('/')[-1].split('-')[4]}}"
+
+   - file:
+       path: "/root/CMSbackup/{{ACTIP}}/"
+       state: directory
+
+   - fetch:
+       src: "{{item}}"
+       dest: "/root/CMSbackup/{{ACTIP}}/"
+       flat: yes
+       validate_checksum: yes
+     with_items: ["/opt/dist/LIManager/conf/application.properties", "/opt/dist/NetConfManager/conf/application.properties", "/opt/dist/RuleEngine/conf/cms_service.properties"]
+     remote_user: "{{CMS_ACT_USER}}"
+     delegate_to: "{{ACTIP}}"
+
+    - name: service cms stop
+      shell: "service cms stop"
+      remote_user: "{{CMS_ACT_USER}}"
+      delegate_to: "{{ACTIP}}"
+
+    - include_tasks: ProcessMonitor_Restart.yml
+      vars:
+          CMSUSER: "{{CMS_ACT_USER}}"
+          CMSIP: "{{ACTIP}}"
+
+    - pause: minutes=4
+
+    - include_tasks: CMS_Status_Check.yml
+      vars:
+          CMSUSER: "{{CMS_STB_USER}}"
+          CMSIP: "{{STBIP}}"
+    - set_fact: STATUS_RESP_SYNCED={{RESP.stdout}}
+      when: RESP.stdout is defined
+
+    - debug:
+         msg="{{STATUS_RESP_SYNCED}}"
+
+#    - shell: "chmod 777 test.sh & ./test.sh {{CMS_ACTIVE_ENV_NAME}}"
+#      args:
+#        chdir: /home/wrsroot/
+#      remote_user: "{{CONTROLLER_SYSUSER}}"
+#      delegate_to: "{{CONTROLLER}}"
+
+    - include_tasks: CMS_ChangeIP_ActENV.yml
+
+    - shell: "source {{KEYSTONE_SOURCE_PATH}} && cd {{HOME_DIR}} && openstack stack delete {{CMS_ACTIVE_STACK_DELETE}} --yes"
+      remote_user: "{{CONTROLLER_SYSUSER}}"
+      delegate_to: "{{CONTROLLER}}"
+      when: "{{STATUS_RESP_SYNCED}}|lower == \"Active\"|lower"
+
+    - pause: seconds=60
+
+    - shell: "source {{KEYSTONE_SOURCE_PATH}} && cd {{HOME_DIR}} && openstack stack create -t {{CMS_ACTIVE_YAML_NAME}} -e {{CMS_ACTIVE_ENV_NAME}} {{CMS_STACK_NAME}}"
+      remote_user: "{{CONTROLLER_SYSUSER}}"
+      delegate_to: "{{CONTROLLER}}"
+
+    - pause: minutes=10
+
+    - include_tasks: setup_pwdless_login.yml 
+      vars:
+          SSHIP: "{{ACTIP}}"
+          ACIP: localhost
+          SYSUSER: "{{CMS_SYS_USER}}"
+          SYSPASS: "{{CMS_SYS_PASSWORD}}"
+
+# CMS Standby status check for Standby
+    - include_tasks: CMS_Status_Check.yml
+      vars:
+          CMSUSER: "{{CMS_ACT_USER}}"
+          CMSIP: "{{ACTIP}}"
+    - set_fact: new_status={{RESP.stdout}}
+      when: RESP.stdout is defined
+
+    - include_tasks: CMS_Status_Check.yml
+      vars:
+          CMSUSER: "{{CMS_ACT_USER}}"
+          CMSIP: "{{ACTIP}}"
+    - set_fact: new_status={{RESP.stdout}} 
+      retries: "{{ CMS_RETRIES }}"
+      delay: "{{ CMS_DELAY }}"
+      until: "{{new_status}}|lower == \"Standby\"|lower"
+
+# CMS Standby status check for Configured
+    - include_tasks: CMS_Status_Configured.yml
+      vars:
+          CMSUSER: "{{CMS_ACT_USER}}"
+          CMSIP: "{{ACTIP}}"
+    - set_fact: new_con_status={{RESP.stdout}}
+      when: RESP.stdout is defined
+
+    - include_tasks: CMS_Status_Configured.yml
+      vars:
+          CMSUSER: "{{CMS_ACT_USER}}"
+          CMSIP: "{{ACTIP}}"
+    - set_fact: new_con_status={{RESP.stdout}}
+      retries: "{{ CMS_RETRIES }}"
+      delay: "{{ CMS_DELAY }}"
+      until: "{{new_con_status}}|lower == \"Configured\"|lower"
+
+
+   - shell: "cp {{item}} {{item}}_orig"
+     with_items: ["/opt/dist/LIManager/conf/application.properties", "/opt/dist/NetConfManager/conf/application.properties", "/opt/dist/RuleEngine/conf/cms_service.properties"]
+     remote_user: "{{CMS_ACT_USER}}"
+     delegate_to: "{{ACTIP}}"
+
+
+   - name: "copy {{item}} to {{ACTIP}}"
+     copy:
+       src: "/root/CMSbackup/{{ACTIP}}/{{item.split('/')[-1]}}"
+       dest: "{{item}}"
+     with_items: ["/opt/dist/LIManager/conf/application.properties", "/opt/dist/NetConfManager/conf/application.properties", "/opt/dist/RuleEngine/conf/cms_service.properties"]
+     remote_user: "{{CMS_ACT_USER}}"
+     delegate_to: "{{ACTIP}}"
+
